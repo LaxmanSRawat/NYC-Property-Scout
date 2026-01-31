@@ -46,6 +46,20 @@ python zillow_scraper.py --type rent --pages 10 --delay-min 5 --delay-max 10
 | `latitude`, `longitude` | GPS coordinates |
 | `url` | Direct link to listing |
 
+## BBL Enrichment (Borough-Block-Lot)
+
+To connect scraped data with NYC Open Data, you can enrich it with BBL identifiers:
+
+1. **Register (free)** at [NYC Developer Portal](https://api-portal.nyc.gov/signup)
+2. **Subscribe** to the Geoclient API
+3. **Run the enricher**:
+
+```bash
+python bbl_enricher.py data/nyc_rent.csv --app-id YOUR_ID --app-key YOUR_KEY
+```
+
+This adds BBL, block, lot, and census tract data for joining with [NYC Open Data](https://opendata.cityofnewyork.us/) datasets.
+
 ## Disclaimer
 
 ⚠️ Web scraping Zillow may violate their Terms of Service. Use responsibly for personal/educational purposes only.
