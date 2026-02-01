@@ -148,6 +148,9 @@ class ZillowScraper:
                     if base_url and not base_url.startswith("http"):
                         base_url = self.BASE_URL + base_url
 
+                    # Get building photo
+                    building_photo = item.get("imgSrc", "N/A")
+                    
                     for unit in units:
                         unit_listing = self._parse_unit(
                             unit,
@@ -156,6 +159,7 @@ class ZillowScraper:
                             lat_long,
                             base_url,
                             listing_type,
+                            building_photo,
                         )
                         if unit_listing:
                             listings.append(unit_listing)
@@ -178,6 +182,7 @@ class ZillowScraper:
         lat_long: dict,
         base_url: str,
         listing_type: str,
+        photo_url: str = "N/A",
     ) -> Optional[dict]:
         """Parse a single unit from a multi-unit building."""
         try:
@@ -210,6 +215,7 @@ class ZillowScraper:
                 "longitude": lat_long.get("longitude", "N/A"),
                 "zpid": "N/A",
                 "url": base_url,
+                "photo_url": photo_url,
                 "listing_type": listing_type,
                 "scraped_at": datetime.now().isoformat(),
             }
@@ -285,6 +291,18 @@ class ZillowScraper:
 
             # Additional useful fields
             zpid = item.get("zpid") or home_info.get("zpid") or "N/A"
+            
+            # Photo URL - check multiple paths
+            photo_url = (
+                item.get("imgSrc")
+                or item.get("mediumImageLink")
+                or home_info.get("hiResLink")
+                or "N/A"
+            )
+            # Also try to get carousel photos if available
+            carousel = item.get("carouselPhotos", [])
+            if carousel and isinstance(carousel, list) and len(carousel) > 0:
+                photo_url = carousel[0].get("url", photo_url)
 
             return {
                 "address": address,
@@ -298,6 +316,7 @@ class ZillowScraper:
                 "longitude": lng,
                 "zpid": zpid,
                 "url": detail_url,
+                "photo_url": photo_url,
                 "listing_type": listing_type,
                 "scraped_at": datetime.now().isoformat(),
             }
@@ -362,6 +381,10 @@ class ZillowScraper:
                 if url and not url.startswith("http"):
                     url = self.BASE_URL + url
 
+                # Photo URL
+                img = card.find("img", src=True)
+                photo_url = img["src"] if img else "N/A"
+
                 listings.append(
                     {
                         "address": address,
@@ -374,6 +397,7 @@ class ZillowScraper:
                         "latitude": "N/A",
                         "longitude": "N/A",
                         "url": url,
+                        "photo_url": photo_url,
                         "listing_type": listing_type,
                         "scraped_at": datetime.now().isoformat(),
                     }
