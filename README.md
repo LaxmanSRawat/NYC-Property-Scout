@@ -6,62 +6,102 @@ An AI-powered property transparency tool for NYC renters, built for the WatsonX 
 
 ## Features
 
-- 🔄 **Anti-detection**: User-agent rotation, random delays
-- 🏠 **Dual listing types**: Rent and sale in a single run
-- 🏢 **Multi-unit support**: Extracts individual units from apartment buildings
-- 📊 **Comprehensive data**: Address, price, beds, baths, sqft, GPS coordinates
-- 📄 **CSV/JSON export**: Configurable output format
+- 🤖 **AI Transparency Reports**: Watson-powered analysis of property quality and financial data
+- 🏢 **NYC Open Data Integration**: 311 complaints, DOB violations, DOF tax records
+- 💬 **Interactive Chat**: Ask follow-up questions about any property
+- ⚡ **Smart Caching**: 24-hour local cache for instant report loading
+- 🎨 **Modern UI**: Zillow-inspired design with real property images
 
-## Installation
+## Tech Stack
+
+- **Frontend**: React 18, Vite, Tailwind CSS, React Router
+- **Backend**: FastAPI, Python 3.11+
+- **AI**: IBM WatsonX Orchestrate
+- **Data**: NYC Open Data APIs, Zillow listings
+
+## Quick Start
+
+### Prerequisites
+
+- Node.js 18+ and pnpm
+- Python 3.11+
+- IBM WatsonX API credentials
+
+### Backend Setup
 
 ```bash
+cd backend
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
 pip install -r requirements.txt
+
+# Set environment variables
+export WATSONX_API_KEY="your-api-key"
+export WATSONX_PROJECT_ID="your-project-id"
+
+# Start the server
+uvicorn main:app --reload
 ```
 
-## Usage
+The backend runs at http://localhost:8000
+
+### Frontend Setup
 
 ```bash
-# Scrape rentals (2 pages)
-python zillow_scraper.py --type rent --pages 2
+cd frontend
 
-# Scrape for-sale listings (3 pages)
-python zillow_scraper.py --type sale --pages 3
+# Install dependencies
+pnpm install
 
-# Scrape both (5 pages each, JSON output)
-python zillow_scraper.py --type both --pages 5 --format json
-
-# Custom delay range (slower to avoid detection)
-python zillow_scraper.py --type rent --pages 10 --delay-min 5 --delay-max 10
+# Start dev server
+pnpm run dev
 ```
 
-## Output Fields
+The frontend runs at http://localhost:5173
 
-| Field | Description |
-|-------|-------------|
-| `address` | Full street address |
-| `building_name` | Building/complex name |
-| `price` | Rent or sale price |
-| `beds` | Number of bedrooms |
-| `baths` | Number of bathrooms |
-| `sqft` | Square footage |
-| `property_type` | APARTMENT, HOUSE, MULTI_UNIT, etc. |
-| `latitude`, `longitude` | GPS coordinates |
-| `url` | Direct link to listing |
+## Project Structure
 
-## BBL Enrichment (Borough-Block-Lot)
-
-To connect scraped data with NYC Open Data, you can enrich it with BBL identifiers:
-
-1. **Register (free)** at [NYC Developer Portal](https://api-portal.nyc.gov/signup)
-2. **Subscribe** to the Geoclient API
-3. **Run the enricher**:
-
-```bash
-python bbl_enricher.py data/nyc_rent.csv --app-id YOUR_ID --app-key YOUR_KEY
+```
+NYC-Rent-Web-Scrapper/
+├── backend/
+│   ├── main.py              # FastAPI application
+│   └── requirements.txt     # Python dependencies
+├── frontend/
+│   ├── src/
+│   │   ├── components/      # React components
+│   │   │   ├── ScoreCard.jsx    # AI Transparency Report display
+│   │   │   └── WatsonChat.jsx   # Chat interface
+│   │   ├── pages/
+│   │   │   ├── PropertyList.jsx # Home page with listings
+│   │   │   └── PropertyDetail.jsx # Property details + AI analysis
+│   │   ├── context/         # React Context for state
+│   │   └── services/        # API integration
+│   └── package.json
+├── data/                    # Property listings data
+└── README.md
 ```
 
-This adds BBL, block, lot, and census tract data for joining with [NYC Open Data](https://opendata.cityofnewyork.us/) datasets.
+## API Endpoints
 
-## Disclaimer
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/properties` | GET | List properties with pagination/filters |
+| `/api/properties/{id}` | GET | Get single property by ID |
+| `/api/chat/stream` | POST | Stream Watson AI analysis (SSE) |
 
-⚠️ Web scraping Zillow may violate their Terms of Service. Use responsibly for personal/educational purposes only.
+## Environment Variables
+
+### Backend
+| Variable | Description |
+|----------|-------------|
+| `WATSONX_API_KEY` | IBM WatsonX API key |
+| `WATSONX_PROJECT_ID` | WatsonX project ID |
+| `WATSONX_AGENT_ID` | WatsonX Orchestrate agent ID |
+
+## License
+
+MIT
