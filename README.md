@@ -1,6 +1,8 @@
-# Zillow NYC Scraper
+# NYC Property Scout
 
-A Python web scraper for extracting rental and for-sale property listings from Zillow for New York City.
+An AI-powered property transparency tool for NYC renters, built for the WatsonX Hackathon.
+
+📄 **[NYC Property Scout.pdf](NYC%20Property%20Scout.pdf)** - Our presentation for the WatsonX Hackathon
 
 ## Features
 
