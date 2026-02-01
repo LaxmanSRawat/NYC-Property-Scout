@@ -26,3 +26,7 @@ Thumbs.db
 .env
 *.secret
 .env
+
+
+# Large files
+pluto_*.csv
