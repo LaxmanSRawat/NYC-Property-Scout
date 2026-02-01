@@ -30,3 +30,7 @@ Thumbs.db
 
 # Large files
 pluto_*.csv
+
+
+# Node modules
+frontend/node_modules/

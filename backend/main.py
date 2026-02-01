@@ -3,20 +3,139 @@ import time
 import json
 import asyncio
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from pathlib import Path
+from typing import List, Optional
+import json
 
 load_dotenv()
 
 app = FastAPI()
+
+# Add CORS middleware for frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5173",
+    ],  # React dev servers
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # --- IBM CONFIGURATION ---
 WXO_API_KEY = os.getenv("WXO_API_KEY")
 # Example: https://api.us-south.watson-orchestrate.ibm.com/instances/YOUR_INSTANCE_ID
 INSTANCE_URL = os.getenv("WXO_INSTANCE_URL")
 AGENT_ID = os.getenv("AGENT_ID")
+
+# --- DATA PATH ---
+DATA_FILE = Path(__file__).parent.parent / "data" / "nyc_both_20260131_161453_bbl.json"
+
+
+# --- PROPERTY ENDPOINTS ---
+
+
+def load_properties():
+    """Load property data from JSON file."""
+    if not DATA_FILE.exists():
+        raise HTTPException(status_code=500, detail="Property data file not found")
+
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+@app.get("/api/properties")
+async def get_properties(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    min_price: Optional[int] = None,
+    max_price: Optional[int] = None,
+    beds: Optional[int] = None,
+    borough: Optional[str] = None,
+):
+    """Get list of properties with optional filters."""
+    properties = load_properties()
+
+    # Filter properties
+    filtered = []
+    for prop in properties:
+        # Skip invalid records
+        if not isinstance(prop, dict) or len(prop) <= 1:
+            continue
+
+        # Price filter
+        if min_price and prop.get("price"):
+            try:
+                if int(prop["price"]) < min_price:
+                    continue
+            except (ValueError, TypeError):
+                pass
+
+        if max_price and prop.get("price"):
+            try:
+                if int(prop["price"]) > max_price:
+                    continue
+            except (ValueError, TypeError):
+                pass
+
+        # Beds filter
+        if beds is not None and prop.get("beds") != beds:
+            continue
+
+        # Borough filter (from address)
+        if borough:
+            address = prop.get("address", "").lower()
+            if borough.lower() not in address:
+                continue
+
+        filtered.append(prop)
+
+    # Pagination
+    total = len(filtered)
+    paginated = filtered[skip : skip + limit]
+
+    return {"properties": paginated, "total": total, "skip": skip, "limit": limit}
+
+
+@app.get("/api/properties/{property_id}")
+async def get_property(property_id: str):
+    """Get single property by zpid or BBL."""
+    properties = load_properties()
+
+    for prop in properties:
+        if not isinstance(prop, dict):
+            continue
+
+        # Match by zpid or bbl
+        if prop.get("zpid") == property_id or prop.get("bbl") == property_id:
+            return prop
+
+    raise HTTPException(status_code=404, detail="Property not found")
+
+
+@app.get("/api/properties/address/{address}")
+async def get_property_by_address(address: str):
+    """Get property by address."""
+    properties = load_properties()
+
+    # Normalize search address
+    search_address = address.lower().strip()
+
+    for prop in properties:
+        if not isinstance(prop, dict):
+            continue
+
+        prop_address = prop.get("address", "").lower()
+        if search_address in prop_address or prop_address in search_address:
+            return prop
+
+    raise HTTPException(status_code=404, detail="Property not found")
 
 
 class ChatRequest(BaseModel):
