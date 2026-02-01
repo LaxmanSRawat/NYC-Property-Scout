@@ -1,8 +1,60 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getPropertyById, streamWatsonAnalysis } from '../services/api';
 import ScoreCard from '../components/ScoreCard.jsx';
 import WatsonChat from '../components/WatsonChat.jsx';
+
+// Cache duration: 24 hours in milliseconds
+const CACHE_DURATION = 24 * 60 * 60 * 1000;
+
+// Cache helper functions
+const getCachedReport = (propertyId) => {
+  try {
+    const cached = localStorage.getItem(`watson_report_${propertyId}`);
+    if (!cached) return null;
+    
+    const { data, threadId, timestamp } = JSON.parse(cached);
+    const age = Date.now() - timestamp;
+    
+    // Check if cache is still valid
+    if (age < CACHE_DURATION) {
+      console.log(`Cache hit for property ${propertyId} (age: ${Math.round(age / 60000)} mins)`);
+      return { data, threadId };
+    }
+    
+    // Cache expired, remove it
+    console.log(`Cache expired for property ${propertyId}`);
+    localStorage.removeItem(`watson_report_${propertyId}`);
+    return null;
+  } catch (e) {
+    console.error('Error reading cache:', e);
+    return null;
+  }
+};
+
+const setCachedReport = (propertyId, data, threadId) => {
+  try {
+    const cacheEntry = {
+      data,
+      threadId,
+      timestamp: Date.now()
+    };
+    localStorage.setItem(`watson_report_${propertyId}`, JSON.stringify(cacheEntry));
+    console.log(`Cached report for property ${propertyId} with threadId ${threadId}`);
+  } catch (e) {
+    console.error('Error writing cache:', e);
+    // If localStorage is full, try to clear old entries
+    if (e.name === 'QuotaExceededError') {
+      clearOldCacheEntries();
+    }
+  }
+};
+
+const clearOldCacheEntries = () => {
+  const keys = Object.keys(localStorage).filter(k => k.startsWith('watson_report_'));
+  // Remove oldest half of entries
+  keys.slice(0, Math.floor(keys.length / 2)).forEach(k => localStorage.removeItem(k));
+};
 
 const PropertyDetail = () => {
   const { id } = useParams();
@@ -17,6 +69,10 @@ const PropertyDetail = () => {
   const [watsonError, setWatsonError] = useState(null);
   const [watsonStatus, setWatsonStatus] = useState('');
   const [threadId, setThreadId] = useState(null);
+  const [fromCache, setFromCache] = useState(false);
+  
+  // Ref to store latest response for caching when onComplete fires
+  const latestResponseRef = useRef('');
 
   useEffect(() => {
     fetchProperty();
@@ -31,7 +87,7 @@ const PropertyDetail = () => {
       
       // Auto-trigger Watson analysis after property loads
       if (data && data.address) {
-        triggerWatsonAnalysis(data.address);
+        triggerWatsonAnalysis(data.address, id);
       }
     } catch (err) {
       setError(err.message || 'Failed to load property');
@@ -41,45 +97,74 @@ const PropertyDetail = () => {
     }
   };
 
-  const triggerWatsonAnalysis = (address) => {
+  const triggerWatsonAnalysis = (address, propertyId) => {
+    // Check cache first
+    const cached = getCachedReport(propertyId);
+    if (cached) {
+      setWatsonResponse(cached.data);
+      setThreadId(cached.threadId); // Restore cached threadId for chat continuity
+      setWatsonLoading(false);
+      setWatsonStatus('Loaded from cache');
+      setFromCache(true);
+      return;
+    }
+    
+    setFromCache(false);
     setWatsonLoading(true);
     setWatsonError(null);
     setWatsonResponse('');
     setWatsonStatus('Connecting to Watson...');
 
-    const message = `Analyze property at ${address}`;
+    const message = `${address}`;
+    
+    // Store propertyId in closure for caching
+    const currentPropertyId = propertyId;
     
     const cleanup = streamWatsonAnalysis(
       message,
-      threadId, // Pass existing thread_id for conversation continuity
+      null, // Don't pass thread_id for initial analysis - each property gets fresh analysis
       (message) => {
         // Check if message is a complete JSON object - if so, replace instead of append
         try {
           const parsed = JSON.parse(message);
-          // Only replace if this is a COMPLETE report with overall grade
-          if (parsed.scores && 
-              (parsed.scores.overall_transparency_grade !== undefined || 
-               parsed.scores.overall_grade !== undefined)) {
-            // This is the final complete report, replace previous content
-            setWatsonResponse(message);
+          console.log('Received Watson message:', parsed);
+          
+          // Check if this is a complete report with scores
+          if (parsed.scores) {
+            const hasOverall = parsed.scores.overall_transparency_grade !== undefined || 
+                               parsed.scores.overall_grade !== undefined ||
+                               parsed.scores.overall !== undefined;
+            const hasQuality = parsed.scores.quality_score !== undefined ||
+                               parsed.scores.quality !== undefined;
+            
+            // If we have overall OR quality score, treat as complete report
+            if (hasOverall || hasQuality) {
+              console.log('Complete report received, updating state');
+              latestResponseRef.current = message; // Store for caching
+              setWatsonResponse(message);
+              return;
+            }
+          }
+          
+          // If it's ONLY property data without any scores, ignore it
+          if (parsed.property && !parsed.scores) {
+            console.log('Received property data only, waiting for analysis...');
             return;
           }
-          // Ignore incomplete JSON (property-only or partial scores)
-          if (parsed.property || parsed.scores) {
-            console.log('Received partial data, waiting for complete report...');
-            return;
-          }
+          
+          // For any other JSON structure, use it
+          latestResponseRef.current = message;
+          setWatsonResponse(message);
         } catch (e) {
           // Not JSON, treat as incremental text
+          // Append text messages for markdown/incremental responses
+          // Prevent duplicates by checking if message already exists
+          setWatsonResponse((prev) => {
+            const newVal = prev.includes(message) ? prev : prev + message;
+            latestResponseRef.current = newVal;
+            return newVal;
+          });
         }
-        // Append text messages for markdown/incremental responses
-        // Prevent duplicates by checking if message already exists
-        setWatsonResponse((prev) => {
-          if (prev.includes(message)) {
-            return prev; // Don't append duplicate content
-          }
-          return prev + message;
-        });
       },
       (status) => {
         setWatsonStatus(status);
@@ -93,6 +178,11 @@ const PropertyDetail = () => {
         setWatsonStatus('Analysis complete');
         setThreadId(newThreadId); // Save thread_id for future messages
         console.log('Watson analysis completed. Thread ID:', newThreadId);
+        
+        // Cache the report with threadId when complete
+        if (latestResponseRef.current) {
+          setCachedReport(currentPropertyId, latestResponseRef.current, newThreadId);
+        }
       }
     );
 
@@ -330,6 +420,31 @@ const PropertyDetail = () => {
           {/* Right Column - Watson Score Card & Chat */}
           <div className="lg:col-span-1">
             <div className="sticky top-24 space-y-6">
+              {/* Cache indicator and refresh button */}
+              {fromCache && (
+                <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
+                  <div className="flex items-center gap-2 text-blue-700">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    <span className="text-sm font-medium">Loaded from cache</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      localStorage.removeItem(`watson_report_${id}`);
+                      setFromCache(false);
+                      triggerWatsonAnalysis(property.address, id);
+                    }}
+                    className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Refresh
+                  </button>
+                </div>
+              )}
+              
               <ScoreCard
                 watsonResponse={watsonResponse}
                 loading={watsonLoading}
@@ -342,8 +457,8 @@ const PropertyDetail = () => {
                 </div>
               )} */}
               
-              {/* Watson Chat - shows as soon as we have a thread */}
-              {threadId && (
+              {/* Watson Chat - shows as soon as we have a thread OR if loaded from cache */}
+              {(threadId || fromCache) && (
                 <WatsonChat
                   threadId={threadId}
                   onThreadId={setThreadId}

@@ -69,13 +69,16 @@ const WatsonChat = ({ threadId, onThreadId, propertyAddress }) => {
     setIsLoading(true);
 
     try {
+      const body = { message: userMessage };
+      // Only include thread_id if it exists
+      if (threadId) {
+        body.thread_id = threadId;
+      }
+      
       const response = await fetch('/api/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: userMessage,
-          thread_id: threadId
-        })
+        body: JSON.stringify(body)
       });
 
       const reader = response.body.getReader();

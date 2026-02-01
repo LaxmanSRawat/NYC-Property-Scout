@@ -5,6 +5,9 @@ const ScoreCard = ({ watsonResponse, loading, error }) => {
   const parseReport = (response) => {
     if (!response) return null;
 
+    console.log('Raw Watson response type:', typeof response);
+    console.log('Raw Watson response preview:', response.substring(0, 200));
+
     try {
       // Try to parse as JSON first (if Watson returns JSON)
       // Check for ```json wrapped JSON
@@ -17,16 +20,24 @@ const ScoreCard = ({ watsonResponse, loading, error }) => {
       try {
         const parsed = JSON.parse(response);
         console.log('Parsed Watson response:', parsed);
+        console.log('Raw scores object:', parsed.scores);
+        console.log('Financial audit object:', parsed.financial_audit);
         
         // Check if it has the expected report structure with scores
         if (parsed.scores) {
           // Normalize field names from Watson format to component format
+          // Also check financial_audit for score if not in scores
+          const financialScore = parsed.scores.financial_score ?? 
+                                 parsed.scores.financial ?? 
+                                 parsed.financial_audit?.score ??
+                                 parsed.financial_audit?.financial_score;
+          
           const normalized = { 
             ...parsed,
             scores: {
               overall: parsed.scores.overall_transparency_grade ?? parsed.scores.overall_grade ?? parsed.scores.overall,
               quality: parsed.scores.quality_score ?? parsed.scores.quality,
-              financial: parsed.scores.financial_score ?? parsed.scores.financial
+              financial: financialScore
             }
           };
           
@@ -42,7 +53,11 @@ const ScoreCard = ({ watsonResponse, loading, error }) => {
           console.log('Received property data, waiting for analysis...');
           return null;
         }
+        
+        // If parsed but no recognized structure, return with full_text for fallback display
+        return { ...parsed, full_text: response };
       } catch (e) {
+        console.log('JSON parse failed, trying markdown:', e.message);
         // Not pure JSON, continue to markdown parsing
       }
 
